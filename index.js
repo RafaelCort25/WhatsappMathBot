@@ -79,26 +79,14 @@ async function saveToSheet(sender, message) {
     }
 }
 
-// Verificar si un mensaje es duplicado usando debounce
-function isDuplicate(messageId, currentTime) {
-    const lastProcessed = messageTimestamps.get(messageId);
-    if (lastProcessed && (currentTime - lastProcessed) < DEBOUNCE_TIME) {
-        console.log(`Mensaje ${messageId} ignorado por debounce (${currentTime - lastProcessed}ms)`);
-        return true;
-    }
-    messageTimestamps.set(messageId, currentTime);
-    return false;
-}
-
 // Función principal del bot
 async function startBot() {
     try {
-        console.log('Iniciando bot de WhatsApp...');
+        console.log('Iniciando proceso del bot...');
         const { state, saveCreds } = await useMultiFileAuthState('baileys_auth');
-
         const sock = makeWASocket({
             auth: state,
-            printQRInTerminal: false,
+            printQRInTerminal: true,
             defaultQueryTimeoutMs: undefined,
             // Configuración adicional para evitar duplicados
             shouldIgnoreJid: jid => jid === 'status@broadcast',
@@ -108,13 +96,7 @@ async function startBot() {
         sock.ev.on('creds.update', saveCreds);
 
         sock.ev.on('connection.update', (update) => {
-            const { connection, lastDisconnect, qr } = update;
-
-            if (qr) {
-                console.log('Por favor escanea este código QR con WhatsApp:');
-                qrcode.generate(qr, { small: true });
-            }
-
+            const { connection, lastDisconnect } = update;
             if (connection === 'close') {
                 const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
                 console.log('Conexión cerrada. Reconectar:', shouldReconnect);
@@ -159,8 +141,15 @@ async function startBot() {
                 const currentTime = Date.now();
                 console.log('ID del mensaje recibido:', messageId);
 
-                // Verificar duplicados usando debounce
-                if (isDuplicate(messageId, currentTime)) {
+                // Verificar duplicados y debounce
+                const lastProcessed = messageTimestamps.get(messageId);
+                if (lastProcessed && (currentTime - lastProcessed) < DEBOUNCE_TIME) {
+                    console.log(`Mensaje duplicado detectado (debounce), ignorando. ID: ${messageId}`);
+                    return;
+                }
+
+                if (processedMessages.has(messageId)) {
+                    console.log(`Mensaje duplicado detectado (caché), ignorando. ID: ${messageId}`);
                     return;
                 }
 
@@ -175,6 +164,11 @@ async function startBot() {
                 }
 
                 console.log(`Mensaje recibido de ${sender}: ${messageText}`);
+
+                // Marcar mensaje como procesado
+                processedMessages.add(messageId);
+                messageTimestamps.set(messageId, currentTime);
+                console.log('Mensaje marcado como procesado. ID:', messageId);
 
                 try {
                     // Procesar mensaje
@@ -201,19 +195,19 @@ async function startBot() {
                     });
                 }
 
-                // Limpiar caché de mensajes y timestamps antiguos
-                const MAX_CACHE_SIZE = 1000;
-                if (processedMessages.size > MAX_CACHE_SIZE) {
+                // Limpiar caché de mensajes antiguos
+                if (processedMessages.size > 1000) {
                     const entries = Array.from(processedMessages);
                     processedMessages.clear();
-                    entries.slice(-MAX_CACHE_SIZE).forEach(id => processedMessages.add(id));
+                    entries.slice(-1000).forEach(id => processedMessages.add(id));
                 }
-                if (messageTimestamps.size > MAX_CACHE_SIZE) {
-                    const oldEntries = Array.from(messageTimestamps.entries())
-                        .sort(([,a], [,b]) => b - a)
-                        .slice(0, MAX_CACHE_SIZE);
-                    messageTimestamps.clear();
-                    oldEntries.forEach(([id, time]) => messageTimestamps.set(id, time));
+
+                // Limpiar timestamps antiguos
+                const now = Date.now();
+                for (const [id, timestamp] of messageTimestamps.entries()) {
+                    if (now - timestamp > DEBOUNCE_TIME * 10) { // Mantener solo los últimos 20 segundos
+                        messageTimestamps.delete(id);
+                    }
                 }
             } catch (error) {
                 console.error('Error en el manejador de mensajes:', error);

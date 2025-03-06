@@ -4,9 +4,6 @@ import os
 import json
 import re
 import logging
-from vosk import Model, KaldiRecognizer
-import wave
-from pydub import AudioSegment
 
 # Configurar logging
 logging.basicConfig(
@@ -20,27 +17,31 @@ logging.basicConfig(
 
 def sanitize_math_expression(expression):
     """Sanitiza y valida una expresión matemática."""
-    # Eliminar todo excepto números y operadores básicos
-    clean_expr = re.sub(r'[^0-9+\-*/().\s]', '', expression)
-    # Validar que la expresión sea segura
-    if not re.match(r'^[\d+\-*/().\s]+$', clean_expr):
+    try:
+        # Eliminar todo excepto números y operadores básicos
+        expression = expression.lower().replace('cuánto es', '').replace('cuanto es', '').strip()
+        # Limpiar espacios extras alrededor de operadores
+        expression = re.sub(r'\s*([+\-*/])\s*', r'\1', expression)
+        # Validar que la expresión sea segura
+        if not re.match(r'^[\d+\-*/().\s]+$', expression):
+            logging.warning(f"Expresión matemática no válida: {expression}")
+            return None
+        logging.info(f"Expresión matemática sanitizada: {expression}")
+        return expression
+    except Exception as e:
+        logging.error(f"Error sanitizando expresión matemática: {e}")
         return None
-    return clean_expr.strip()
 
 def evaluate_math_expression(expression):
     """Evalúa una expresión matemática de forma segura."""
     try:
-        # Reemplazar operadores textuales por símbolos
-        expression = expression.lower()
-        expression = expression.replace('más', '+').replace('menos', '-')
-        expression = expression.replace('por', '*').replace('entre', '/')
-
         # Sanitizar la expresión
         clean_expr = sanitize_math_expression(expression)
         if not clean_expr:
             return "La expresión matemática no es válida. Solo se permiten números y los operadores +, -, *, /."
 
         # Evaluar la expresión
+        logging.info(f"Evaluando expresión: {clean_expr}")
         result = eval(clean_expr)
         return f"El resultado de {clean_expr} es {result}"
     except Exception as e:
@@ -50,24 +51,17 @@ def evaluate_math_expression(expression):
 def processMessageLocal(message):
     """Procesa mensajes de texto y retorna una respuesta."""
     try:
-        message = message.lower().strip()
+        message = message.strip()
         logging.info(f"Procesando mensaje: {message}")
 
         # Detectar si es una operación matemática
-        math_patterns = [
-            r'cuánto es', r'cuanto es', r'calcul[aa]', 
-            r'resuelve', r'resultado de'
-        ]
-
-        if any(re.search(pattern, message) for pattern in math_patterns):
-            # Extraer la expresión matemática
-            for pattern in math_patterns:
-                message = re.sub(pattern, '', message, flags=re.IGNORECASE)
+        if 'cuánto es' in message.lower() or 'cuanto es' in message.lower():
+            logging.info("Detectada operación matemática")
             return evaluate_math_expression(message)
 
         # Otras respuestas
         greetings = ['hola', 'buenos días', 'buenas tardes', 'buenas noches']
-        if any(greeting in message for greeting in greetings):
+        if any(greeting in message.lower() for greeting in greetings):
             return "¡Hola! ¿En qué puedo ayudarte?"
 
         return f"He recibido tu mensaje: '{message}'. ¿En qué puedo ayudarte?"
@@ -86,12 +80,11 @@ if __name__ == "__main__":
 
     if action == "process":
         try:
-            # Asegurar que la entrada esté en UTF-8
-            input_data = input_data.encode('utf-8').decode('utf-8')
-            # Procesar el mensaje y codificar la respuesta en UTF-8
+            logging.info(f"Procesando entrada: {input_data}")
             result = processMessageLocal(input_data)
-            print(result.encode('utf-8').decode('utf-8'))
+            print(result)
         except Exception as e:
-            print(f"Error: {str(e)}".encode('utf-8').decode('utf-8'))
+            logging.error(f"Error: {str(e)}")
+            print(f"Error: {str(e)}")
     else:
         print("Acción no válida. Use 'process'.")
