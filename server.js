@@ -1,71 +1,85 @@
 const express = require('express');
-const multer = require('multer');
-const path = require('path');
-const { 
-    processWithAI, 
-    summarizePDF 
-} = require('./ai_handler');
+const { GoogleSpreadsheet } = require('google-spreadsheet');
+const creds = require('./credentials.json');
+const dotenv = require('dotenv');
+const { exec } = require('child_process');
+const gtts = require('gtts');
+const fs = require('fs');
+
+dotenv.config();
 
 const app = express();
-const upload = multer({ dest: 'uploads/' });
+const port = 3000;
 
-// Middleware
 app.use(express.json());
-app.use('/static', express.static(path.join(__dirname, 'public')));
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-    res.json({ 
-        status: 'OK',
-        timestamp: new Date().toISOString(),
-        staticFiles: {
-            path: path.join(__dirname, 'public'),
-            exists: require('fs').existsSync(path.join(__dirname, 'public'))
-        }
-    });
-});
-
-// Ruta principal
+// Ruta para la raíz (/)
 app.get('/', (req, res) => {
-    console.log('Sirviendo index.html desde:', path.join(__dirname, 'public', 'index.html'));
-    res.sendFile(path.join(__dirname, 'public', 'index.html'), (err) => {
-        if (err) {
-            console.error('Error enviando index.html:', err);
-            res.status(500).send('Error interno del servidor');
-        }
+    res.send('¡Bienvenido al WhatsappMathBot!');
+});
+
+// Función para guardar en Google Sheets
+async function saveToSheet(sender, message) {
+    try {
+        const doc = new GoogleSpreadsheet(process.env.SHEET_ID);
+        await doc.useServiceAccountAuth(creds);
+        await doc.loadInfo();
+        const sheet = doc.sheetsByIndex[0];
+        await sheet.addRow([sender, message, new Date().toISOString()]);
+        console.log('✅ Datos guardados en Google Sheets.');
+    } catch (error) {
+        console.error('❌ Error al guardar en Google Sheets:', error);
+    }
+}
+
+// Función para procesar mensajes con IA
+async function processMessageLocal(message) {
+    return new Promise((resolve, reject) => {
+        const escapedMessage = message.replace(/"/g, '\\"');
+        const command = `python -c "from summarize import processMessageLocal; print(processMessageLocal('${escapedMessage}'))"`;
+
+        exec(command, { encoding: 'utf8' }, (error, stdout, stderr) => {
+            if (error) {
+                console.error('Error en processMessageLocal:', stderr);
+                reject('Lo siento, hubo un error procesando tu mensaje.');
+            } else {
+                resolve(`📝 **Respuesta:**\n${stdout.trim()}`);
+            }
+        });
     });
-});
+}
 
-// Ruta para el chat
-app.post('/chat', async (req, res) => {
-    const { message } = req.body;
+// Función para generar audio con gTTS
+async function generateSpeech(text) {
+    return new Promise((resolve, reject) => {
+        const tts = new gtts(text, 'es');
+        const filePath = 'output.mp3';
+        tts.save(filePath, (err) => {
+            if (err) {
+                console.error('Error en generateSpeech:', err);
+                reject('Lo siento, hubo un error generando el audio.');
+            } else {
+                resolve(filePath);
+            }
+        });
+    });
+}
+
+// Ruta para recibir mensajes
+app.post('/message', async (req, res) => {
+    const { sender, message } = req.body;
+
     try {
-        const response = await processWithAI(message);
-        res.json({ response });
+        await saveToSheet(sender, message);
+        const response = await processMessageLocal(message);
+        const audioResponse = await generateSpeech(response);
+        res.send({ response, audioUrl: audioResponse });
     } catch (error) {
-        console.error('Error en /chat:', error);
-        res.status(500).json({ response: 'Lo siento, hubo un error procesando tu mensaje.' });
+        console.error('Error procesando el mensaje:', error);
+        res.status(500).send('Lo siento, hubo un error procesando tu mensaje.');
     }
 });
 
-// Ruta para subir PDFs
-app.post('/upload', upload.single('pdf'), async (req, res) => {
-    const filePath = req.file.path;
-    try {
-        const summary = await summarizePDF(filePath);
-        res.json({ summary });
-    } catch (error) {
-        console.error('Error en /upload:', error);
-        res.status(500).json({ summary: 'Lo siento, hubo un error procesando el PDF.' });
-    }
-});
-
-// Iniciar el servidor
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Servidor corriendo en http://0.0.0.0:${PORT}`);
-    console.log('Directorio público:', path.join(__dirname, 'public'));
-}).on('error', (error) => {
-    console.error('Error al iniciar el servidor:', error);
-    process.exit(1);
+app.listen(port, () => {
+    console.log(`Servidor corriendo en http://localhost:${port}`);
 });

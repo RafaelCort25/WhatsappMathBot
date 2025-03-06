@@ -1,114 +1,98 @@
 # -*- coding: utf-8 -*-
+from vosk import Model, KaldiRecognizer
+import wave
 import sys
 import os
 import json
+from pydub import AudioSegment
 import re
-import logging
 
-# Configurar logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('bot.log', encoding='utf-8'),
-        logging.StreamHandler()
-    ]
-)
-
-def sanitize_math_expression(expression):
-    """Sanitiza y valida una expresión matemática."""
+# Función para convertir MP3 a WAV
+def convert_mp3_to_wav(mp3_file, wav_file):
     try:
-        logging.info(f"Sanitizando expresión original (repr): {repr(expression)}")
+        audio = AudioSegment.from_mp3(mp3_file)
+        audio.export(wav_file, format="wav")
+        return wav_file
+    except Exception as e:
+        return f"Error al convertir MP3 a WAV: {e}"
 
-        # Extraer la expresión matemática después de "cuanto es" o "cuánto es"
-        matches = re.search(r'cu[aá]nto\s+es\s+(.*)', expression.lower())
-        if not matches:
-            logging.warning(f"No se encontró patrón 'cuánto es' en: {repr(expression)}")
-            return None
+# Función para transcribir audio
+def transcribe_audio(file_path):
+    try:
+        if not os.path.exists(file_path):
+            return f"Error: El archivo '{file_path}' no existe."
 
-        # Obtener la expresión
-        expr = matches.group(1).strip()
-        logging.info(f"Expresión extraída antes de limpieza (repr): {repr(expr)}")
-
-        # Eliminar caracteres especiales y espacios
-        expr = re.sub(r'[¿?!¡]', '', expr)  # Eliminar signos de puntuación
-        expr = re.sub(r'\s+', '', expr)     # Eliminar espacios
-        logging.info(f"Expresión después de eliminar caracteres especiales (repr): {repr(expr)}")
-
-        # Mantener solo caracteres válidos
-        expr = ''.join(c for c in expr if c in '0123456789+-*/()')
-        logging.info(f"Expresión final después de filtrar caracteres válidos (repr): {repr(expr)}")
-
-        # Validar que haya al menos un número
-        if not re.search(r'\d', expr):
-            logging.warning("La expresión no contiene números")
-            return None
-
-        # Validar la estructura de la expresión
         try:
-            compile(expr, '<string>', 'eval')
-            return expr
-        except SyntaxError as e:
-            logging.warning(f"Error de sintaxis en la expresión: {e}")
-            return None
+            wf = wave.open(file_path, "rb")
+        except wave.Error:
+            return f"Error: El archivo '{file_path}' no es un archivo WAV válido."
+
+        model = Model("models/vosk-model-small-es-0.22")
+        rec = KaldiRecognizer(model, wf.getframerate())
+
+        transcription = ""
+        while True:
+            data = wf.readframes(4000)
+            if len(data) == 0:
+                break
+            if rec.AcceptWaveform(data):
+                result = rec.Result()
+                result_dict = json.loads(result)
+                transcription += result_dict.get("text", "") + " "
+            else:
+                partial_result = rec.PartialResult()
+                partial_dict = json.loads(partial_result)
+                print("Transcripción parcial:", partial_dict.get("partial", ""))
+
+        final_result = rec.FinalResult()
+        final_dict = json.loads(final_result)
+        transcription += final_dict.get("text", "")
+
+        return transcription.strip() if transcription.strip() else "No se pudo transcribir el audio."
 
     except Exception as e:
-        logging.error(f"Error en sanitize_math_expression: {str(e)}")
-        return None
+        return f"Error inesperado: {e}"
 
-def evaluate_math_expression(expression):
-    """Evalúa una expresión matemática de forma segura."""
-    try:
-        clean_expr = sanitize_math_expression(expression)
-        if not clean_expr:
-            return "Por favor, escribe una operación matemática simple como 'cuánto es 2+2'"
-
-        result = eval(clean_expr)
-        if isinstance(result, float):
-            result = round(result, 2)
-
-        return f"El resultado de {clean_expr} es {result}"
-    except Exception as e:
-        logging.error(f"Error en evaluate_math_expression: {str(e)}")
-        return "Hubo un error al calcular. Por favor, verifica que la operación sea válida (ejemplo: 2+2, 3*4, 10/2)"
-
+# Función para procesar mensajes de texto con IA
 def processMessageLocal(message):
-    """Procesa mensajes de texto y retorna una respuesta."""
     try:
-        message = message.strip()
-        logging.info(f"Procesando mensaje: {message}")
+        if "cuánto es" in message.lower() or "cuanto es" in message.lower():
+            expression = message.lower().replace("cuánto es", "").replace("cuanto es", "").strip()
+            expression = expression.replace(" ", "")
+            
+            if not re.match(r'^[\d+\-*/().\s]+$', expression):
+                return "La expresión matemática no es válida. Solo se permiten números y los operadores +, -, *, /."
 
-        # Detectar si es una operación matemática
-        if re.search(r'cu[aá]nto\s+es', message.lower()):
-            logging.info("Detectada operación matemática")
-            return evaluate_math_expression(message)
-
-        # Saludos
-        greetings = ['hola', 'buenos días', 'buenas tardes', 'buenas noches']
-        if any(greeting in message.lower() for greeting in greetings):
-            return "¡Hola! ¿En qué puedo ayudarte?"
-
-        return f"He recibido tu mensaje: '{message}'. ¿En qué puedo ayudarte?"
-
+            result = eval(expression)
+            return f"El resultado de {expression} es {result}."
+        else:
+            return f"Recibí tu mensaje: {message}. ¿En qué más puedo ayudarte?"
     except Exception as e:
-        logging.error(f"Error en processMessageLocal: {str(e)}")
-        return "Lo siento, ocurrió un error al procesar tu mensaje."
+        return f"No pude resolver la operación. Asegúrate de que sea una expresión matemática válida. Error: {str(e)}"
 
+# Función principal
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print("Uso: python summarize.py process <input>")
+        print("Uso: python summarize.py transcribe <archivo.mp3>")
         sys.exit(1)
 
     action = sys.argv[1]
-    input_data = sys.argv[2]
+    input_file = sys.argv[2]
 
-    if action == "process":
-        try:
-            logging.info(f"Procesando entrada: {input_data}")
-            result = processMessageLocal(input_data)
-            print(result)
-        except Exception as e:
-            logging.error(f"Error: {str(e)}")
-            print(f"Error: {str(e)}")
+    if action == "transcribe":
+        if input_file.endswith(".mp3"):
+            wav_file = "temp.wav"
+            print("Convirtiendo MP3 a WAV...")
+            result = convert_mp3_to_wav(input_file, wav_file)
+            if result.startswith("Error"):
+                print(result)
+                sys.exit(1)
+            input_file = wav_file
+
+        print("Transcribiendo audio...")
+        print("Transcripción:", transcribe_audio(input_file))
+
+        if input_file == "temp.wav":
+            os.remove(input_file)
     else:
-        print("Acción no válida. Use 'process'.")
+        print("Acción no válida. Usa 'transcribe'.")

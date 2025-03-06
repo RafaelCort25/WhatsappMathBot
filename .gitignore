@@ -1,2 +1,4 @@
-attached_assets/credentials.json
-attached_assets/.env
+# .gitignore
+.env
+credentials.json
+model/
