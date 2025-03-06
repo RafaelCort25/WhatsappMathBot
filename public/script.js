@@ -1,3 +1,46 @@
+document.addEventListener('DOMContentLoaded', () => {
+    const chatBox = document.getElementById('chat-box');
+    const userInput = document.getElementById('user-input');
+    const sendBtn = document.getElementById('send-btn');
+
+    function addMessage(text, isUser = false) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message ${isUser ? 'user' : 'bot'}`;
+        messageDiv.textContent = text;
+        chatBox.appendChild(messageDiv);
+        chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    async function sendMessage() {
+        const message = userInput.value.trim();
+        if (!message) return;
+
+        addMessage(message, true);
+        userInput.value = '';
+
+        try {
+            const response = await fetch('/chat', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ message }),
+            });
+
+            const data = await response.json();
+            addMessage(data.response);
+        } catch (error) {
+            console.error('Error:', error);
+            addMessage('Lo siento, hubo un error al procesar tu mensaje.');
+        }
+    }
+
+    sendBtn.addEventListener('click', sendMessage);
+    userInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') sendMessage();
+    });
+});
+
 // Variables globales
 let currentConversationId = null;
 let userId = localStorage.getItem('userId') || `user_${Date.now()}`;
@@ -7,62 +50,13 @@ if (!localStorage.getItem('userId')) {
     localStorage.setItem('userId', userId);
 }
 
-// Elementos del DOM
-const chatBox = document.getElementById('chat-box');
-const userInput = document.getElementById('user-input');
-const sendButton = document.getElementById('send-btn');
+// Elementos del DOM (Some elements are already defined in the DOMContentLoaded event listener)
 const pdfUpload = document.getElementById('pdf-upload');
 const feedbackSection = document.querySelector('.feedback-section');
 
-// Event Listeners
-sendButton.addEventListener('click', sendMessage);
-userInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') sendMessage();
-});
+
+// Event Listeners (Some are already defined in the DOMContentLoaded event listener)
 pdfUpload.addEventListener('change', handlePDFUpload);
-
-// Función para enviar mensajes
-async function sendMessage() {
-    const message = userInput.value.trim();
-    if (!message) return;
-
-    // Mostrar mensaje del usuario
-    addMessage('user', message);
-    userInput.value = '';
-
-    // Mostrar indicador de carga
-    const loadingMessage = addMessage('bot', 'Procesando tu mensaje...');
-
-    try {
-        const response = await fetch('/chat', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ 
-                message,
-                userId,
-                context: getRecentContext()
-            }),
-        });
-
-        const data = await response.json();
-        
-        // Eliminar mensaje de carga
-        loadingMessage.remove();
-        
-        if (data.error) {
-            addMessage('bot', 'Lo siento, hubo un error procesando tu mensaje.');
-        } else {
-            const botMessage = addMessage('bot', data.response);
-            showFeedbackButtons(botMessage);
-        }
-    } catch (error) {
-        console.error('Error:', error);
-        loadingMessage.remove();
-        addMessage('bot', 'Lo siento, hubo un error en la comunicación.');
-    }
-}
 
 // Función para manejar la subida de PDFs
 async function handlePDFUpload(event) {
@@ -95,16 +89,6 @@ async function handlePDFUpload(event) {
     }
 }
 
-// Función para añadir mensajes al chat
-function addMessage(sender, text) {
-    const messageDiv = document.createElement('div');
-    messageDiv.classList.add('message', sender);
-    messageDiv.textContent = text;
-    chatBox.appendChild(messageDiv);
-    chatBox.scrollTop = chatBox.scrollHeight;
-    return messageDiv;
-}
-
 // Función para mostrar botones de feedback
 function showFeedbackButtons(messageElement) {
     const feedbackDiv = document.createElement('div');
@@ -130,7 +114,7 @@ async function sendFeedback(value, button) {
                 feedback: value
             }),
         });
-        
+
         feedbackDiv.innerHTML = '¡Gracias por tu feedback! 🎉';
     } catch (error) {
         console.error('Error enviando feedback:', error);
@@ -152,7 +136,7 @@ async function loadHistory() {
     try {
         const response = await fetch(`/history/${userId}`);
         const data = await response.json();
-        
+
         if (data.history) {
             data.history.forEach(item => {
                 addMessage('user', item.message);

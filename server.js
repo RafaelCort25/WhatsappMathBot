@@ -3,9 +3,7 @@ const multer = require('multer');
 const path = require('path');
 const { 
     processWithAI, 
-    summarizePDF, 
-    updateFeedback,
-    getConversationHistory
+    summarizePDF 
 } = require('./ai_handler');
 
 const app = express();
@@ -38,71 +36,28 @@ app.get('/', (req, res) => {
     });
 });
 
-// Ruta para el chat con IA
+// Ruta para el chat
 app.post('/chat', async (req, res) => {
+    const { message } = req.body;
     try {
-        const { message, userId, context } = req.body;
-        if (!message) {
-            return res.status(400).json({ error: 'Mensaje requerido' });
-        }
-
-        const response = await processWithAI(message, userId, context);
+        const response = await processWithAI(message);
         res.json({ response });
     } catch (error) {
         console.error('Error en /chat:', error);
-        res.status(500).json({ error: 'Error procesando el mensaje' });
+        res.status(500).json({ response: 'Lo siento, hubo un error procesando tu mensaje.' });
     }
 });
 
-// Ruta para procesar PDFs
+// Ruta para subir PDFs
 app.post('/upload', upload.single('pdf'), async (req, res) => {
+    const filePath = req.file.path;
     try {
-        if (!req.file) {
-            return res.status(400).json({ error: 'Archivo PDF requerido' });
-        }
-
-        const summary = await summarizePDF(req.file.path);
+        const summary = await summarizePDF(filePath);
         res.json({ summary });
     } catch (error) {
         console.error('Error en /upload:', error);
-        res.status(500).json({ error: 'Error procesando el PDF' });
+        res.status(500).json({ summary: 'Lo siento, hubo un error procesando el PDF.' });
     }
-});
-
-// Ruta para actualizar el feedback
-app.post('/feedback', async (req, res) => {
-    try {
-        const { conversationId, feedback } = req.body;
-        if (!conversationId || feedback === undefined) {
-            return res.status(400).json({ error: 'ID de conversación y feedback requeridos' });
-        }
-
-        await updateFeedback(conversationId, feedback);
-        res.json({ success: true });
-    } catch (error) {
-        console.error('Error en /feedback:', error);
-        res.status(500).json({ error: 'Error actualizando el feedback' });
-    }
-});
-
-// Ruta para obtener el historial de conversación
-app.get('/history/:userId', async (req, res) => {
-    try {
-        const { userId } = req.params;
-        const { limit } = req.query;
-
-        const history = await getConversationHistory(userId, parseInt(limit) || 5);
-        res.json({ history });
-    } catch (error) {
-        console.error('Error en /history:', error);
-        res.status(500).json({ error: 'Error obteniendo el historial' });
-    }
-});
-
-// Manejar errores
-app.use((err, req, res, next) => {
-    console.error('Error no manejado:', err);
-    res.status(500).json({ error: 'Error interno del servidor' });
 });
 
 // Iniciar el servidor

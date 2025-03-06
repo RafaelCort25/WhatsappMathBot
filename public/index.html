@@ -3,34 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RafWorksAI - Asistente Inteligente</title>
+    <title>Chat Bot</title>
     <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>RafWorksAI</h1>
-            <p>Tu Asistente Inteligente</p>
+            <h1>Chat Bot</h1>
         </div>
-
-        <div id="chat-box">
-            <!-- Los mensajes aparecerán aquí -->
-        </div>
-
+        <div id="chat-box"></div>
         <div class="input-area">
             <input type="text" id="user-input" placeholder="Escribe tu mensaje...">
             <button id="send-btn">Enviar</button>
-        </div>
-
-        <div class="file-upload">
-            <input type="file" id="pdf-upload" accept=".pdf">
-            <label for="pdf-upload" id="upload-btn">Subir PDF</label>
-        </div>
-
-        <div class="feedback-section" style="display: none;">
-            <p>¿Te fue útil esta respuesta?</p>
-            <button class="feedback-btn" data-value="1">👍</button>
-            <button class="feedback-btn" data-value="0">👎</button>
         </div>
     </div>
     <script src="/static/script.js"></script>
