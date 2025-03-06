@@ -13,19 +13,29 @@ const upload = multer({ dest: 'uploads/' });
 
 // Middleware
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+app.use('/static', express.static(path.join(__dirname, 'public')));
 
-// Configuración de CORS
-app.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    next();
+// Health check endpoint
+app.get('/health', (req, res) => {
+    res.json({ 
+        status: 'OK',
+        timestamp: new Date().toISOString(),
+        staticFiles: {
+            path: path.join(__dirname, 'public'),
+            exists: require('fs').existsSync(path.join(__dirname, 'public'))
+        }
+    });
 });
 
 // Ruta principal
 app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    console.log('Sirviendo index.html desde:', path.join(__dirname, 'public', 'index.html'));
+    res.sendFile(path.join(__dirname, 'public', 'index.html'), (err) => {
+        if (err) {
+            console.error('Error enviando index.html:', err);
+            res.status(500).send('Error interno del servidor');
+        }
+    });
 });
 
 // Ruta para el chat con IA
@@ -89,8 +99,18 @@ app.get('/history/:userId', async (req, res) => {
     }
 });
 
+// Manejar errores
+app.use((err, req, res, next) => {
+    console.error('Error no manejado:', err);
+    res.status(500).json({ error: 'Error interno del servidor' });
+});
+
 // Iniciar el servidor
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`Servidor corriendo en http://0.0.0.0:${PORT}`);
+    console.log('Directorio público:', path.join(__dirname, 'public'));
+}).on('error', (error) => {
+    console.error('Error al iniciar el servidor:', error);
+    process.exit(1);
 });
