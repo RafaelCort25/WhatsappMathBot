@@ -1,4 +1,5 @@
 const { default: makeWASocket, DisconnectReason, useMultiFileAuthState } = require('@whiskeysockets/baileys');
+const qrcode = require('qrcode-terminal');
 const { google } = require('googleapis');
 const axios = require('axios');
 const dotenv = require('dotenv');
@@ -35,22 +36,24 @@ function saveConversation(userId, message, response) {
 // Función para procesar mensajes
 async function processMessage(message) {
     return new Promise((resolve, reject) => {
-        // Escapar caracteres especiales en el mensaje
+        console.log('Procesando mensaje:', message);
         const escapedMessage = message.replace(/(['"])/g, '\\$1');
+        const command = `python summarize.py process "${escapedMessage}"`;
+        console.log('Ejecutando comando:', command);
 
-        exec(`python summarize.py process "${escapedMessage}"`, 
-            { encoding: 'utf8' },
-            (error, stdout, stderr) => {
-                if (error) {
-                    console.error('Error procesando mensaje:', error);
-                    reject('Lo siento, ocurrió un error al procesar tu mensaje.');
-                    return;
-                }
-                // Asegurar que la respuesta esté en UTF-8
-                let response = stdout.toString('utf8').trim();
-                resolve(response);
+        exec(command, { encoding: 'utf8' }, (error, stdout, stderr) => {
+            if (error) {
+                console.error('Error procesando mensaje:', error);
+                console.error('stderr:', stderr);
+                reject('Lo siento, ocurrió un error al procesar tu mensaje.');
+                return;
             }
-        );
+            if (stderr) {
+                console.error('Error en stderr:', stderr);
+            }
+            console.log('Respuesta del procesamiento:', stdout);
+            resolve(stdout.trim());
+        });
     });
 }
 
@@ -65,6 +68,7 @@ async function saveToSheet(sender, message) {
             Message: message,
             Timestamp: new Date().toISOString()
         });
+        console.log('Mensaje guardado en Google Sheets');
     } catch (error) {
         console.error('Error guardando en Google Sheets:', error);
     }
@@ -72,66 +76,87 @@ async function saveToSheet(sender, message) {
 
 // Función principal del bot
 async function startBot() {
-    const { state, saveCreds } = await useMultiFileAuthState('baileys_auth');
-    const sock = makeWASocket({
-        auth: state,
-        printQRInTerminal: true,
-        defaultQueryTimeoutMs: undefined
-    });
+    try {
+        console.log('Iniciando bot de WhatsApp...');
+        const { state, saveCreds } = await useMultiFileAuthState('baileys_auth');
 
-    sock.ev.on('creds.update', saveCreds);
+        // Configuración del socket con soporte para QR
+        const sock = makeWASocket({
+            auth: state,
+            printQRInTerminal: false, // Desactivamos el QR incorporado
+            defaultQueryTimeoutMs: undefined
+        });
 
-    sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect } = update;
-        if (connection === 'close') {
-            const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-            if (shouldReconnect) {
-                console.log('Reconectando...');
-                startBot();
+        sock.ev.on('creds.update', saveCreds);
+
+        // Manejar actualizaciones de conexión y mostrar QR
+        sock.ev.on('connection.update', (update) => {
+            const { connection, lastDisconnect, qr } = update;
+
+            if (qr) {
+                // Mostrar el código QR en la terminal
+                console.log('Por favor escanea este código QR con WhatsApp:');
+                qrcode.generate(qr, { small: true });
             }
-        } else if (connection === 'open') {
-            console.log('Bot conectado correctamente a WhatsApp.');
-        }
-    });
 
-    sock.ev.on('messages.upsert', async ({ messages }) => {
-        const m = messages[0];
-        if (!m.message || m.key.remoteJid === 'status@broadcast') return;
+            if (connection === 'close') {
+                const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
+                console.log('Conexión cerrada. Reconectar:', shouldReconnect);
+                if (shouldReconnect) {
+                    console.log('Reconectando...');
+                    startBot();
+                }
+            } else if (connection === 'open') {
+                console.log('Bot conectado correctamente a WhatsApp');
+            }
+        });
 
-        const sender = m.key.remoteJid;
-        const messageText = m.message.conversation || 
-                          m.message.extendedTextMessage?.text || 
-                          '';
+        // Manejar mensajes entrantes
+        sock.ev.on('messages.upsert', async ({ messages }) => {
+            try {
+                const m = messages[0];
+                if (!m.message || m.key.remoteJid === 'status@broadcast') return;
 
-        console.log(`Mensaje recibido de ${sender}: ${messageText}`);
+                const sender = m.key.remoteJid;
+                const messageText = m.message.conversation || 
+                                m.message.extendedTextMessage?.text || 
+                                '';
 
-        try {
-            // Guardar mensaje en Google Sheets
-            await saveToSheet(sender, messageText);
-            console.log('Mensaje guardado en Google Sheets');
+                console.log(`Mensaje recibido de ${sender}: ${messageText}`);
 
-            // Procesar mensaje
-            const response = await processMessage(messageText);
-            console.log('Respuesta generada:', response);
+                // Guardar mensaje en Google Sheets
+                await saveToSheet(sender, messageText);
 
-            // Guardar conversación en SQLite
-            saveConversation(sender, messageText, response);
+                // Procesar mensaje
+                const response = await processMessage(messageText);
+                console.log('Respuesta generada:', response);
 
-            // Enviar respuesta
-            await sock.sendMessage(sender, { 
-                text: response 
-            });
+                // Guardar conversación en SQLite
+                saveConversation(sender, messageText, response);
 
-            console.log('Respuesta enviada exitosamente');
-        } catch (error) {
-            console.error('Error procesando mensaje:', error);
-            await sock.sendMessage(sender, { 
-                text: 'Lo siento, ocurrió un error al procesar tu mensaje.' 
-            });
-        }
-    });
+                // Enviar respuesta
+                await sock.sendMessage(sender, { text: response });
+                console.log('Respuesta enviada exitosamente');
+            } catch (error) {
+                console.error('Error procesando mensaje:', error);
+                if (m && m.key && m.key.remoteJid) {
+                    await sock.sendMessage(m.key.remoteJid, { 
+                        text: 'Lo siento, ocurrió un error al procesar tu mensaje.' 
+                    });
+                }
+            }
+        });
+
+        return sock;
+    } catch (error) {
+        console.error('Error iniciando el bot:', error);
+        throw error;
+    }
 }
 
 // Iniciar el bot
-console.log('Iniciando bot...');
-startBot().catch(console.error);
+console.log('Iniciando proceso del bot...');
+startBot().catch(error => {
+    console.error('Error fatal iniciando el bot:', error);
+    process.exit(1);
+});

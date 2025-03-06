@@ -15,6 +15,10 @@ author = "agent"
 task = "workflow.run"
 args = "Web Server"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "WhatsApp Bot"
+
 [[workflows.workflow]]
 name = "Web Server"
 author = "agent"
@@ -29,6 +33,20 @@ task = "packager.installForAll"
 task = "shell.exec"
 args = "node server.js"
 waitForPort = 5000
+
+[[workflows.workflow]]
+name = "WhatsApp Bot"
+author = "agent"
+
+[workflows.workflow.metadata]
+agentRequireRestartOnSave = false
+
+[[workflows.workflow.tasks]]
+task = "packager.installForAll"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node index.js"
 
 [deployment]
 run = ["sh", "-c", "node server.js"]
