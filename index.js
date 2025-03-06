@@ -1,5 +1,4 @@
 const { default: makeWASocket, DisconnectReason, useMultiFileAuthState } = require('@whiskeysockets/baileys');
-const qrcode = require('qrcode-terminal');
 const { google } = require('googleapis');
 const axios = require('axios');
 const dotenv = require('dotenv');
@@ -8,10 +7,16 @@ const { exec } = require('child_process');
 const fs = require('fs');
 const sqlite3 = require('sqlite3').verbose();
 
-// Configuración
+// Configuración de variables de entorno
 dotenv.config();
+
+// API Keys
 const SHEET_ID = process.env.SHEET_ID;
+
+// Configuración de Google Sheets
 const doc = new GoogleSpreadsheet(SHEET_ID);
+
+// Configuración de la base de datos SQLite
 const db = new sqlite3.Database('conversations.db');
 
 // Set para controlar mensajes duplicados
@@ -19,31 +24,29 @@ const processedMessages = new Set();
 const messageTimestamps = new Map();
 const DEBOUNCE_TIME = 2000; // 2 segundos de debounce
 
-// Configurar base de datos
+// Crear tabla para almacenar conversaciones
 db.serialize(() => {
-    db.run(`CREATE TABLE IF NOT EXISTS conversations (
-        user_id TEXT,
-        message TEXT,
-        response TEXT,
-        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-    )`);
+    db.run("CREATE TABLE IF NOT EXISTS conversations (user_id TEXT, message TEXT, response TEXT, timestamp DATETIME)");
 });
 
 // Función para guardar conversación
 function saveConversation(userId, message, response) {
-    const stmt = db.prepare("INSERT INTO conversations (user_id, message, response) VALUES (?, ?, ?)");
-    stmt.run([userId, message, response], (err) => {
-        if (err) console.error('Error guardando conversación:', err);
-    });
-    stmt.finalize();
+    const timestamp = new Date().toISOString();
+    db.run("INSERT INTO conversations (user_id, message, response, timestamp) VALUES (?, ?, ?, ?)", [userId, message, response, timestamp]);
 }
 
 // Función para procesar mensajes
 async function processMessage(message) {
     return new Promise((resolve, reject) => {
         console.log('Procesando mensaje:', message);
-        const escapedMessage = message.replace(/(['"])/g, '\\$1');
-        const command = `python summarize.py process "${escapedMessage}"`;
+        // Escapar el mensaje para la línea de comandos
+        const escapedMessage = message
+            .replace(/\\/g, '\\\\')
+            .replace(/"/g, '\\"')
+            .replace(/\$/g, '\\$')
+            .replace(/`/g, '\\`');
+
+        const command = `python3 summarize.py process "${escapedMessage}"`;
         console.log('Ejecutando comando:', command);
 
         exec(command, { encoding: 'utf8' }, (error, stdout, stderr) => {
@@ -56,7 +59,7 @@ async function processMessage(message) {
             if (stderr) {
                 console.error('Error en stderr:', stderr);
             }
-            console.log('Respuesta del procesamiento:', stdout);
+            console.log('Respuesta del procesamiento:', stdout.trim());
             resolve(stdout.trim());
         });
     });
