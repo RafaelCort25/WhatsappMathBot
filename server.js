@@ -1,85 +1,78 @@
 const express = require('express');
 const { GoogleSpreadsheet } = require('google-spreadsheet');
-const creds = require('./credentials.json');
 const dotenv = require('dotenv');
-const { exec } = require('child_process');
 const gtts = require('gtts');
-const fs = require('fs');
 
 dotenv.config();
 
 const app = express();
 const port = 3000;
 
+// Middleware para parsear JSON
 app.use(express.json());
 
-// Ruta para la raíz (/)
+// Ruta de bienvenida (GET)
 app.get('/', (req, res) => {
-    res.send('¡Bienvenido al WhatsappMathBot!');
+  res.send('¡Bienvenido al WhatsappMathBot!');
 });
+
+// Ruta para manejar mensajes (POST)
+app.post('/message', async (req, res) => {
+  const { sender, message } = req.body;
+
+  if (!sender || !message) {
+    return res.status(400).json({ success: false, error: 'Faltan campos requeridos' });
+  }
+
+  try {
+    // Procesar el mensaje
+    const response = await processMessage(message);
+
+    // Guardar en Google Sheets (opcional)
+    if (process.env.SHEET_ID && process.env.GOOGLE_CREDENTIALS) {
+      await saveToGoogleSheets(sender, message, response);
+    }
+
+    // Enviar respuesta
+    res.json({ success: true, response });
+  } catch (error) {
+    console.error('Error:', error);
+    res.status(500).json({ success: false, error: 'Error al procesar el mensaje' });
+  }
+});
+
+// Función para procesar el mensaje
+async function processMessage(message) {
+  // Si el mensaje es una operación matemática
+  if (/[\d\s\+\-\*\/\(\)]/.test(message)) {
+    try {
+      const result = eval(message); // ¡Cuidado con eval! Solo para este ejemplo.
+      return `El resultado es: ${result}`;
+    } catch (error) {
+      return 'No pude resolver la operación.';
+    }
+  }
+
+  // Si el mensaje es un audio (aquí deberías integrar Vosk)
+  return 'Procesamiento de audio no implementado aún.';
+}
 
 // Función para guardar en Google Sheets
-async function saveToSheet(sender, message) {
-    try {
-        const doc = new GoogleSpreadsheet(process.env.SHEET_ID);
-        await doc.useServiceAccountAuth(creds);
-        await doc.loadInfo();
-        const sheet = doc.sheetsByIndex[0];
-        await sheet.addRow([sender, message, new Date().toISOString()]);
-        console.log('✅ Datos guardados en Google Sheets.');
-    } catch (error) {
-        console.error('❌ Error al guardar en Google Sheets:', error);
-    }
+async function saveToGoogleSheets(sender, message, response) {
+  const doc = new GoogleSpreadsheet(process.env.SHEET_ID);
+  await doc.useServiceAccountAuth(require('./credentials.json'));
+  await doc.loadInfo();
+
+  const sheet = doc.sheetsByIndex[0];
+  await sheet.addRow({
+    Sender: sender,
+    Message: message,
+    Response: response,
+    Timestamp: new Date().toISOString(),
+  });
 }
 
-// Función para procesar mensajes con IA
-async function processMessageLocal(message) {
-    return new Promise((resolve, reject) => {
-        const escapedMessage = message.replace(/"/g, '\\"');
-        const command = `python -c "from summarize import processMessageLocal; print(processMessageLocal('${escapedMessage}'))"`;
-
-        exec(command, { encoding: 'utf8' }, (error, stdout, stderr) => {
-            if (error) {
-                console.error('Error en processMessageLocal:', stderr);
-                reject('Lo siento, hubo un error procesando tu mensaje.');
-            } else {
-                resolve(`📝 **Respuesta:**\n${stdout.trim()}`);
-            }
-        });
-    });
-}
-
-// Función para generar audio con gTTS
-async function generateSpeech(text) {
-    return new Promise((resolve, reject) => {
-        const tts = new gtts(text, 'es');
-        const filePath = 'output.mp3';
-        tts.save(filePath, (err) => {
-            if (err) {
-                console.error('Error en generateSpeech:', err);
-                reject('Lo siento, hubo un error generando el audio.');
-            } else {
-                resolve(filePath);
-            }
-        });
-    });
-}
-
-// Ruta para recibir mensajes
-app.post('/message', async (req, res) => {
-    const { sender, message } = req.body;
-
-    try {
-        await saveToSheet(sender, message);
-        const response = await processMessageLocal(message);
-        const audioResponse = await generateSpeech(response);
-        res.send({ response, audioUrl: audioResponse });
-    } catch (error) {
-        console.error('Error procesando el mensaje:', error);
-        res.status(500).send('Lo siento, hubo un error procesando tu mensaje.');
-    }
-});
-
+// Iniciar el servidor
 app.listen(port, () => {
-    console.log(`Servidor corriendo en http://localhost:${port}`);
+  console.log(`Servidor corriendo en http://localhost:${port}`);
 });
