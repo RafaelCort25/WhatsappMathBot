@@ -23,6 +23,11 @@ app.use((req, res, next) => {
     next();
 });
 
+// Ruta principal
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
 // Ruta para el chat con IA
 app.post('/chat', async (req, res) => {
     try {
