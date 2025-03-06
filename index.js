@@ -1,7 +1,12 @@
 const { default: makeWASocket, DisconnectReason, useMultiFileAuthState } = require('@whiskeysockets/baileys');
-const { evaluate } = require('mathjs');
 const dotenv = require('dotenv');
 const sqlite3 = require('sqlite3').verbose();
+
+// Configuración de logging mejorado
+function log(message, data = '') {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] ${message}`, data ? JSON.stringify(data) : '');
+}
 
 // Configuración de variables de entorno
 dotenv.config();
@@ -9,8 +14,10 @@ dotenv.config();
 // Configuración de la base de datos SQLite
 const db = new sqlite3.Database('conversations.db');
 
-// Set para controlar mensajes duplicados
-const processedMessages = new Set();
+// Control de mensajes procesados
+const processedMessages = new Map(); // messageId -> { timestamp, processingCount }
+const MESSAGE_TIMEOUT = 5000; // 5 segundos
+const MAX_PROCESSING_ATTEMPTS = 2;
 
 // Crear tabla para almacenar conversaciones
 db.serialize(() => {
@@ -24,44 +31,97 @@ function saveConversation(userId, message, response) {
         [userId, message, response, timestamp]);
 }
 
-// Función para procesar mensajes matemáticos
-function processMathExpression(message) {
+// Función para evaluar expresiones matemáticas simples
+function evaluarOperacionMatematica(expresion) {
     try {
-        // Extraer la expresión matemática
-        const match = message.toLowerCase().match(/cu[aá]nto\s+es\s+(.*)/i);
-        if (!match) return null;
+        log('Evaluando expresión matemática:', expresion);
 
-        // Obtener y limpiar la expresión
+        // Extraer la parte matemática
+        const match = expresion.toLowerCase().match(/cu[aá]nto\s+es\s+(.*)/i);
+        if (!match) {
+            log('No se encontró patrón "cuánto es"');
+            return null;
+        }
+
         let expr = match[1].trim();
-        expr = expr.replace(/[¿?!¡]/g, '').trim();
+        log('Expresión extraída:', expr);
 
-        // Validar que la expresión contenga solo números y operadores válidos
-        if (!/^[\d\s+\-*/(). ]+$/.test(expr)) {
+        // Limpiar y validar la expresión
+        expr = expr.replace(/[^0-9+\-*/()\s.]/g, '').trim();
+        expr = expr.replace(/\s+/g, '');
+        log('Expresión limpia:', expr);
+
+        if (!/^[\d+\-*/(). ]+$/.test(expr)) {
+            log('Expresión contiene caracteres no permitidos');
             return "Por favor, usa solo números y operadores básicos (+, -, *, /)";
         }
 
-        // Limpiar espacios adicionales
-        expr = expr.replace(/\s+/g, '');
+        // Evaluar usando Function para mayor seguridad
+        const resultado = Function('"use strict";return (' + expr + ')')();
+        log('Resultado calculado:', resultado);
 
-        // Evaluar la expresión usando mathjs
-        const result = evaluate(expr);
+        if (typeof resultado !== 'number' || isNaN(resultado)) {
+            throw new Error('Resultado inválido');
+        }
 
         // Formatear el resultado
-        const formattedResult = typeof result === 'number' ? 
-            Number.isInteger(result) ? result : parseFloat(result.toFixed(2)) :
-            result.toString();
+        const resultadoFormateado = Number.isInteger(resultado) ? 
+            resultado : 
+            parseFloat(resultado.toFixed(2));
 
-        return `El resultado de ${expr} es ${formattedResult}`;
+        const respuesta = `El resultado de ${expr} es ${resultadoFormateado}`;
+        log('Respuesta final:', respuesta);
+        return respuesta;
+
     } catch (error) {
-        console.error('Error procesando expresión matemática:', error);
-        return "Lo siento, no pude resolver esa operación. Por favor, asegúrate de usar una expresión válida como '2+2' o '3*4'.";
+        log('Error evaluando expresión:', error.message);
+        return "Lo siento, no pude resolver esa operación. Por favor, verifica que sea una expresión válida (ejemplo: 2+2 o 3*4)";
     }
 }
 
-// Función principal del bot
+// Función para verificar si un mensaje puede ser procesado
+function canProcessMessage(messageId) {
+    const now = Date.now();
+    const messageInfo = processedMessages.get(messageId);
+
+    if (!messageInfo) {
+        // Primer intento de procesar el mensaje
+        processedMessages.set(messageId, { timestamp: now, processingCount: 1 });
+        return true;
+    }
+
+    // Verificar si el mensaje es muy antiguo
+    if (now - messageInfo.timestamp > MESSAGE_TIMEOUT) {
+        processedMessages.delete(messageId);
+        processedMessages.set(messageId, { timestamp: now, processingCount: 1 });
+        return true;
+    }
+
+    // Verificar si se ha excedido el número máximo de intentos
+    if (messageInfo.processingCount >= MAX_PROCESSING_ATTEMPTS) {
+        log('Mensaje excedió máximo de intentos:', messageId);
+        return false;
+    }
+
+    // Incrementar contador de intentos
+    messageInfo.processingCount += 1;
+    return true;
+}
+
+// Función para limpiar mensajes antiguos
+function cleanupOldMessages() {
+    const now = Date.now();
+    for (const [id, info] of processedMessages.entries()) {
+        if (now - info.timestamp > MESSAGE_TIMEOUT) {
+            processedMessages.delete(id);
+        }
+    }
+}
+
+// Función principal para iniciar el bot
 async function startBot() {
     try {
-        console.log('Iniciando proceso del bot...');
+        log('Iniciando bot...');
         const { state, saveCreds } = await useMultiFileAuthState('baileys_auth');
         const sock = makeWASocket({
             auth: state,
@@ -76,54 +136,54 @@ async function startBot() {
             const { connection, lastDisconnect } = update;
             if (connection === 'close') {
                 const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-                console.log('Conexión cerrada. Reconectar:', shouldReconnect);
+                log('Conexión cerrada. Reconectar:', shouldReconnect);
                 if (shouldReconnect) {
-                    console.log('Reconectando en 5 segundos...');
+                    log('Reconectando en 5 segundos...');
                     setTimeout(startBot, 5000);
                 }
             } else if (connection === 'open') {
-                console.log('Bot conectado correctamente a WhatsApp');
-                processedMessages.clear();
+                log('Bot conectado correctamente a WhatsApp');
             }
         });
 
         sock.ev.on('messages.upsert', async ({ messages, type }) => {
             try {
+                log('Tipo de evento recibido:', type);
                 if (type !== 'notify') {
-                    console.log('Ignorando evento que no es notify:', type);
+                    log('Ignorando evento que no es notify:', type);
                     return;
                 }
 
                 const m = messages[0];
                 if (!m.message || m.key.remoteJid === 'status@broadcast' || m.key.fromMe) {
-                    console.log('Mensaje ignorado: broadcast, vacío o propio');
+                    log('Mensaje ignorado: broadcast, vacío o propio');
                     return;
                 }
 
                 const messageId = m.key.id;
-                if (processedMessages.has(messageId)) {
-                    console.log(`Mensaje duplicado detectado, ignorando. ID: ${messageId}`);
-                    return;
-                }
-
                 const sender = m.key.remoteJid;
                 const messageText = m.message.conversation || 
                                   m.message.extendedTextMessage?.text || 
                                   '';
 
                 if (!messageText.trim()) {
-                    console.log('Mensaje ignorado: texto vacío');
+                    log('Mensaje ignorado: texto vacío');
                     return;
                 }
 
-                console.log(`Mensaje recibido de ${sender}: ${messageText}`);
-                processedMessages.add(messageId);
+                // Verificar si el mensaje puede ser procesado
+                if (!canProcessMessage(messageId)) {
+                    log('Mensaje no puede ser procesado:', messageId);
+                    return;
+                }
+
+                log('Procesando mensaje:', { id: messageId, sender, text: messageText });
 
                 try {
                     let response;
                     if (/cu[aá]nto\s+es/i.test(messageText)) {
-                        console.log('Procesando operación matemática:', messageText);
-                        response = processMathExpression(messageText);
+                        log('Detectada operación matemática');
+                        response = evaluarOperacionMatematica(messageText);
                     } else {
                         const greetings = ['hola', 'buenos días', 'buenas tardes', 'buenas noches'];
                         if (greetings.some(greeting => messageText.toLowerCase().includes(greeting))) {
@@ -133,42 +193,39 @@ async function startBot() {
                         }
                     }
 
-                    // Guardar conversación
+                    // Guardar la conversación
                     saveConversation(sender, messageText, response);
-                    console.log('Conversación guardada en SQLite');
+                    log('Conversación guardada para:', sender);
 
                     // Enviar respuesta
                     await sock.sendMessage(sender, { text: response });
-                    console.log('Respuesta enviada:', response);
+                    log('Respuesta enviada:', response);
 
                 } catch (error) {
-                    console.error('Error procesando mensaje:', error);
+                    log('Error procesando mensaje:', error.message);
                     await sock.sendMessage(sender, { 
-                        text: 'Lo siento, ocurrió un error al procesar tu mensaje.' 
+                        text: 'Lo siento, hubo un error procesando tu mensaje.' 
                     });
                 }
 
-                // Limpiar mensajes antiguos del Set (mantener últimos 1000)
-                if (processedMessages.size > 1000) {
-                    const entries = Array.from(processedMessages);
-                    processedMessages.clear();
-                    entries.slice(-1000).forEach(id => processedMessages.add(id));
-                }
+                // Limpiar mensajes antiguos periódicamente
+                cleanupOldMessages();
+
             } catch (error) {
-                console.error('Error en el manejador de mensajes:', error);
+                log('Error en el manejador de mensajes:', error.message);
             }
         });
 
         return sock;
     } catch (error) {
-        console.error('Error iniciando el bot:', error);
+        log('Error iniciando el bot:', error.message);
         throw error;
     }
 }
 
 // Iniciar el bot
-console.log('Iniciando proceso del bot...');
+log('Iniciando proceso del bot...');
 startBot().catch(error => {
-    console.error('Error fatal iniciando el bot:', error);
+    log('Error fatal iniciando el bot:', error.message);
     process.exit(1);
 });

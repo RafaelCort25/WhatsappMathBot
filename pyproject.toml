@@ -4,6 +4,21 @@ version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.11"
 dependencies = [
+    "beautifulsoup4>=4.13.3",
+    "numpy>=2.2.3",
+    "pdfplumber>=0.11.5",
     "pydub>=0.25.1",
+    "requests>=2.32.3",
+    "torch>=2.6.0",
+    "transformers>=4.49.0",
     "vosk>=0.3.45",
 ]
+
+[[tool.uv.index]]
+explicit = true
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "platform_system == 'Linux'" }]
+torchvision = [{ index = "pytorch-cpu", marker = "platform_system == 'Linux'" }]
