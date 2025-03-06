@@ -1,0 +1,38 @@
+{"level":30,"time":"2025-03-06T01:39:53.419Z","pid":6621,"hostname":"2f743e4d96ae","class":"baileys","browser":["Ubuntu","Chrome","22.04.4"],"helloMsg":{"clientHello":{"ephemeral":"JHGn34DObZkM0s3lLh5VK/f0vr329XXtaeK1toaixXs="}},"msg":"connected to WA"}
+{"level":30,"time":"2025-03-06T01:39:53.550Z","pid":6621,"hostname":"2f743e4d96ae","class":"baileys","node":{"username":"51985319533","passive":false,"userAgent":{"platform":"WEB","appVersion":{"primary":2,"secondary":3000,"tertiary":1019707846},"mcc":"000","mnc":"000","osVersion":"0.1","device":"Desktop","osBuildNumber":"0.1","releaseChannel":"RELEASE","localeLanguageIso6391":"en","localeCountryIso31661Alpha2":"US"},"webInfo":{"webSubPlatform":"WEB_BROWSER"},"connectType":"WIFI_UNKNOWN","connectReason":"USER_ACTIVATED","device":16,"pull":true},"msg":"logging in..."}
+{"level":30,"time":"2025-03-06T01:39:54.145Z","pid":6621,"hostname":"2f743e4d96ae","class":"baileys","msg":"handled 0 offline messages/notifications"}
+{"level":30,"time":"2025-03-06T01:39:54.302Z","pid":6621,"hostname":"2f743e4d96ae","class":"baileys","msg":"29 pre-keys found on server"}
+{"level":30,"time":"2025-03-06T01:39:54.421Z","pid":6621,"hostname":"2f743e4d96ae","class":"baileys","msg":"opened connection to WA"}
+Bot conectado correctamente a WhatsApp
+ID del mensaje recibido: 3A432E44657A863C0BCE
+Mensaje recibido de 51915973624@s.whatsapp.net: Cuánto es 2+2?
+Mensaje marcado como procesado. ID: 3A432E44657A863C0BCE
+Procesando mensaje...
+Procesando mensaje: Cuánto es 2+2?
+Ejecutando comando: python3 summarize.py process "Cuánto es 2+2?"
+Error en stderr: 2025-03-06 01:42:38,494 - INFO - Procesando entrada: Cuánto es 2+2?
+2025-03-06 01:42:38,498 - INFO - Procesando mensaje: Cuánto es 2+2?
+2025-03-06 01:42:38,499 - INFO - Detectada operación matemática
+2025-03-06 01:42:38,499 - INFO - Sanitizando expresión original (repr): 'Cuánto es 2+2?'
+2025-03-06 01:42:38,499 - INFO - Expresión extraída antes de limpieza (repr): '2+2?'
+2025-03-06 01:42:38,500 - INFO - Expresión después de eliminar caracteres especiales (repr): '2+2'
+2025-03-06 01:42:38,500 - INFO - Expresión final después de filtrar caracteres válidos (repr): '2+2'
+
+Respuesta del procesamiento: El resultado de 2+2 es 4
+Respuesta generada: El resultado de 2+2 es 4
+Conversación guardada en SQLite
+Respuesta enviada exitosamente
+Error guardando en Google Sheets: Error: Cannot find module './credentials.json'
+Require stack:
+- /home/runner/workspace/index.js
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1225:15)
+    at Module._load (node:internal/modules/cjs/loader:1051:27)
+    at Module.require (node:internal/modules/cjs/loader:1311:19)
+    at require (node:internal/modules/helpers:179:18)
+    at saveToSheet (/home/runner/workspace/index.js:71:41)
+    at EventEmitter.<anonymous> (/home/runner/workspace/index.js:191:21) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [ '/home/runner/workspace/index.js' ]
+}
+Ignorando evento que no es notify: append
+Mensaje ignorado: mensaje propio
